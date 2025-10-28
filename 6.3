@@ -1,0 +1,99 @@
+server.js :
+const express = require("express");
+const mongoose = require("mongoose");
+const bodyParser = require("body-parser");
+
+const app = express();
+app.use(bodyParser.json());
+
+// ----------------------------
+// Connect to MongoDB
+// ----------------------------
+mongoose.connect("mongodb://127.0.0.1:27017/bankDB", {
+    useNewUrlParser: true,
+    useUnifiedTopology: true
+})
+.then(() => console.log("MongoDB connected"))
+.catch(err => console.log(err));
+
+// ----------------------------
+// User Account Schema & Model
+// ----------------------------
+const userSchema = new mongoose.Schema({
+    name: { type: String, required: true },
+    balance: { type: Number, required: true, min: 0 }
+});
+
+const User = mongoose.model("User", userSchema);
+
+// ----------------------------
+// Initialize Sample Users
+// ----------------------------
+async function initUsers() {
+    await User.deleteMany({}); // Clear existing users
+    const users = [
+        { name: "Alice", balance: 1000 },
+        { name: "Bob", balance: 500 },
+        { name: "Charlie", balance: 2000 }
+    ];
+    await User.insertMany(users);
+    console.log("Sample users inserted");
+}
+
+// ----------------------------
+// Transfer Endpoint
+// ----------------------------
+app.post("/transfer", async (req, res) => {
+    const { senderName, receiverName, amount } = req.body;
+
+    if (!senderName || !receiverName || !amount || amount <= 0) {
+        return res.status(400).json({ message: "Invalid input" });
+    }
+
+    try {
+        // Find sender and receiver
+        const sender = await User.findOne({ name: senderName });
+        const receiver = await User.findOne({ name: receiverName });
+
+        if (!sender) return res.status(404).json({ message: "Sender not found" });
+        if (!receiver) return res.status(404).json({ message: "Receiver not found" });
+
+        // Check sender balance
+        if (sender.balance < amount) {
+            return res.status(400).json({ message: "Insufficient balance" });
+        }
+
+        // Sequential updates (without transactions)
+        sender.balance -= amount;
+        receiver.balance += amount;
+
+        await sender.save();
+        await receiver.save();
+
+        res.json({
+            message: `Transferred ${amount} from ${senderName} to ${receiverName} successfully`,
+            senderBalance: sender.balance,
+            receiverBalance: receiver.balance
+        });
+
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// ----------------------------
+// Get All Users (for testing)
+// ----------------------------
+app.get("/users", async (req, res) => {
+    const users = await User.find();
+    res.json(users);
+});
+
+// ----------------------------
+// Start Server
+// ----------------------------
+const PORT = 3000;
+app.listen(PORT, async () => {
+    console.log(`Server running at http://localhost:${PORT}`);
+    await initUsers(); // Initialize sample users
+});
